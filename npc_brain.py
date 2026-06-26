@@ -30,27 +30,15 @@ LLM_API_TOKEN = os.environ["LLM_API_TOKEN"]
 MODEL = "google/gemma-4-e2b"
 
 # %%
-LLM_API_URL = os.environ["LMSTUDIO_BASE_URL"]
-LLM_API_TOKEN = os.environ["LM_API_TOKEN"]
-MODEL = "gemma-4-26B"
+# LLM_API_URL = os.environ["LMSTUDIO_BASE_URL"]
+# LLM_API_TOKEN = os.environ["LM_API_TOKEN"]
+# MODEL = "gemma-4-26B"
 
 # %%
 client = OpenAI(
     base_url=LLM_API_URL,
     api_key=LLM_API_TOKEN
 )
-
-# %%
-# models = [m.id for m in client.models.list().data]
-# models
-
-# %%
-# response = client.chat.completions.create(
-#     model=MODEL,
-#     messages=[{"role": "user", "content": "Hi!"}]
-# )
-
-# response.choices[0].message.content
 
 # %% [markdown]
 # # Modélisation du monde
@@ -65,9 +53,9 @@ SYMBOLS = {VOID: "·", PLAYER: "👤", ENNEMY: "👹", GOLD: "💰"}
 
 # %%
 initial_map = np.array([
-    [0, 0, 0, 0, 0, 0, 0],
+    [0, 3, 0, 0, 0, 0, 0],
     [0, 1, 0, 0, 2, 0, 3], # (1, 1) # (1, 4) # (1, 6)
-    [0, 0, 0, 0, 0, 0, 0],
+    [0, 3, 0, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, 0, 3], # (5, 6)
@@ -87,16 +75,9 @@ class Direction(str, Enum):
     DROITE     = "DROITE"
 
 
-# class Confidence(str, Enum):
-#     HIGHT       = "HIGHT"
-#     MEDIUM      = "MEDIUM"
-#     LOW         = "LOW"
-
-
 class PlayerDecision(BaseModel):
     direction: Direction
-    # playerDecision: str
-    # confidence: Confidence
+
 
 MOVES = {
     "HAUT":     (-1, 0),
@@ -114,9 +95,6 @@ def localize(world_map, entity):
     positions = np.argwhere(world_map == entity)
     return positions
 
-
-# %%
-# localize(initial_map, ENNEMY)
 
 # %%
 def compute_distances(entities_positions, reference_pos):
@@ -139,11 +117,18 @@ def perception(world_map):
     golds_distances = compute_distances(golds_positions, player_position)
     ennemies_distances = compute_distances(ennemies_positions, player_position)
 
+    # percreption directionnelle → delta signé
+    nearest_gold_delta = {
+        "row": 0,
+        "col": 0
+    }
+
     return {
         "ennemies_distances": ennemies_distances.tolist(),
         "ennemies_count": len(ennemies_distances),
         "golds_distances": golds_distances.tolist(),
         "golds_count": len(golds_distances),
+        "nearest_gold_delta": nearest_gold_delta,
     }
 
 
@@ -154,9 +139,6 @@ def show_map(world_map):
     print('-----------------------------------------------------')
 
 
-# %%
-# show_map(initial_map)
-
 # %% [markdown]
 # # Moteur de déplacement
 
@@ -165,10 +147,10 @@ def allowed_move(world_map: np.ndarray, pos):
     n_rows, n_cols = world_map.shape
     r, c = pos
 
-    if r >= n_rows or c >= n_cols:
-    # if r < 0 or c < 0 or r >= n_rows or c >= n_cols:
+    if r < 0 or c < 0 or r >= n_rows or c >= n_cols:
         return False
     
+    # Retourne False même si c'est GOLD
     return world_map[r, c] == VOID
 
 
@@ -183,10 +165,6 @@ def move(world_map: np.ndarray, old_pos, new_pos):
 
     return new_pos
 
-
-# %%
-# player_pos = localize(initial_map, PLAYER)[0]
-# move(initial_map, player_pos, player_pos + 1)
 
 # %% [markdown]
 # # Moteur de décision
@@ -217,28 +195,29 @@ def decide(player_perception) -> PlayerDecision | None:
     return response.choices[0].message.parsed or None
 
 
-# %%
-# p = perception(initial_map)
-# decision: PlayerDecision = decide(p)
-# decision.direction.value
-
 # %% [markdown]
 # # Game loop (simulation)
 
 # %%
 def game_loop(world_map: np.ndarray, max_turns = 10):
     world_map = world_map.copy()
+    move_history = []
     
     for turn in range(max_turns):
         print(f"\n =================== [Turn {turn + 1}] ===================")
         show_map(world_map)
 
         player_pos = localize(world_map, PLAYER)[0]
+        
         p = perception(world_map)
+        p["move_history"] = move_history
 
         decision: PlayerDecision | None = decide(p)
+
         if decision is not None:
             print(f"\t → LLM decision: {decision.direction.value}")
+
+            move_history.append(decision.direction.value)
 
             d_row, d_col = MOVES[decision.direction.value]
             new_pos = (player_pos[0] + d_row, player_pos[1] + d_col)
@@ -247,3 +226,9 @@ def game_loop(world_map: np.ndarray, max_turns = 10):
 
 # %%
 game_loop(world_map=initial_map, max_turns=10)
+
+# %% [markdown]
+# # ToDo
+#
+# - Mettre en place le ramassage d'or → Fin de partie
+# - Mettre en place la perception directionnelle
