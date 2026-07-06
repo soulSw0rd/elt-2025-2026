@@ -1,0 +1,22 @@
+[project]
+name = "npc-brain"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "cursor-sdk>=0.1.8",
+    "ipykernel>=7.3.0",
+    "matplotlib>=3.11.0",
+    "numpy>=2.5.0",
+    "openai>=2.44.0",
+    "pydantic>=2.13.4",
+    "python-dotenv>=1.2.2",
+    "rich>=15.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

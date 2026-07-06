@@ -1,3 +1,22 @@
+# Environnements locaux
 .venv
 .env
+.envrc
 .claude
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Outils
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.mypy_cache/
