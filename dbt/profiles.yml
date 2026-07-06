@@ -1,0 +1,8 @@
+npc_brain:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      # Chemin relatif à la racine du repo (cwd au moment du `dbt build`).
+      path: data/warehouse.duckdb
+      threads: 4

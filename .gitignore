@@ -20,3 +20,14 @@ dist/
 .ruff_cache/
 .ipynb_checkpoints/
 .mypy_cache/
+
+# Data engineering (régénérable : le bronze committé suffit à tout reconstruire)
+data/warehouse.duckdb
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+dbt/.user.yml
+logs/
+
+# Reporting (régénérable via reporting : dbt build + rebuild dataviz)
+reports/

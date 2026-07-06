@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: kpi_run
+    description: KPI par run de simulation (une ligne par run).
+    columns:
+      - name: run_id
+        tests: [unique, not_null]
+      - name: taux_or_ramasse
+        tests: [not_null]
+
+  - name: kpi_typologie
+    description: Agrégats métiers par typologie × variante de cerveau (table du reporting).
+    columns:
+      - name: typologie
+        tests: [not_null]
+      - name: variante
+        tests: [not_null]
+      - name: n_runs
+        tests: [not_null]
+
+  - name: distance_glissante
+    description: Moyenne glissante (3 tours) de la distance à l'or, par run.
+    columns:
+      - name: run_id
+        tests: [not_null]

@@ -10,9 +10,7 @@ testée en direct (aucun identifiant) : on injecte un cerveau simulé via le
 paramètre `decide_fn` de `game_loop`.
 """
 
-import json
 import os
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -22,28 +20,11 @@ import pytest
 os.environ.setdefault("LLM_API_URL", "http://localhost/v1")
 os.environ.setdefault("LLM_API_TOKEN", "test")
 
-NB_PATH = Path(__file__).resolve().parents[1] / "npc_brain.ipynb"
+from engine import load_engine  # noqa: E402  (après les valeurs d'env factices)
 
-
-def _load_engine():
-    nb = json.loads(NB_PATH.read_text(encoding="utf-8"))
-    ns: dict = {}
-    for cell in nb.get("cells", []):
-        if cell.get("cell_type") != "code":
-            continue
-        src = "".join(cell["source"])
-        # Ignore les cellules d'exécution (marquées `# [RUN]`) et les vieux appels
-        # `game_loop(...)` : elles déclencheraient une simulation (voire un LLM),
-        # alors qu'on ne veut charger que les DÉFINITIONS du moteur.
-        if "# [RUN]" in src:
-            continue
-        if "game_loop(" in src and "def game_loop" not in src:
-            continue
-        exec(compile(src, "<notebook>", "exec"), ns)
-    return ns
-
-
-NS = _load_engine()
+# Le moteur est chargé une seule fois depuis le notebook (loader partagé avec
+# visu.py et benchmark.py). `test_data_pipeline` réutilise ce NS via un import.
+NS = load_engine()
 
 VOID, PLAYER, ENNEMY, GOLD = NS["VOID"], NS["PLAYER"], NS["ENNEMY"], NS["GOLD"]
 localize = NS["localize"]

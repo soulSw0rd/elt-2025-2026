@@ -1,0 +1,22 @@
+# Projet dbt du pipeline médaillon npc_brain.
+# À lancer depuis la RACINE du repo (les chemins parquet/duckdb y sont relatifs) :
+#   uv run dbt build --project-dir dbt --profiles-dir dbt
+name: npc_brain_dbt
+version: "1.0.0"
+
+profile: npc_brain
+
+model-paths: ["models"]
+target-path: target
+clean-targets: [target, dbt_packages]
+
+models:
+  npc_brain_dbt:
+    # Silver : données propres, matérialisées en vues (toujours à jour du bronze).
+    silver:
+      +materialized: view
+      +schema: silver
+    # Gold : agrégats métiers, matérialisés en tables (lus par le reporting).
+    gold:
+      +materialized: table
+      +schema: gold

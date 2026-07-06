@@ -1,0 +1,40 @@
+version: 2
+
+models:
+  - name: stg_runs
+    description: Runs de simulation propres (une ligne par run, dédoublonnée).
+    columns:
+      - name: run_id
+        tests: [unique, not_null]
+      - name: cerveau
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["greedy", "llm_local", "cursor", "openai"]
+      - name: typologie
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["degage", "ennemi_chemin", "leurre", "aleatoire"]
+      - name: variante
+        tests: [not_null]
+
+  - name: stg_turns
+    description: Télémétrie par tour, propre et enrichie.
+    columns:
+      - name: run_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_runs')
+                field: run_id
+      - name: tour
+        tests: [not_null]
+      - name: direction
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["HAUT", "BAS", "GAUCHE", "DROITE"]

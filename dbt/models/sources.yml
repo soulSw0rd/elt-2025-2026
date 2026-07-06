@@ -1,0 +1,16 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: >
+      Couche bronze : fichiers parquet bruts écrits par la simulation
+      (benchmark.py -> datalog.py), append-only, un fichier par run.
+      union_by_name=true absorbe les évolutions de schéma entre runs
+      (les colonnes absentes des anciens fichiers arrivent en NULL).
+    meta:
+      external_location: "read_parquet('data/bronze/{name}/*.parquet', union_by_name=true)"
+    tables:
+      - name: runs
+        description: Une ligne par simulation (paramètres du run + résultat global).
+      - name: turns
+        description: Une ligne par tour de jeu (télémétrie mesurée par l'arbitre).
