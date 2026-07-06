@@ -13,6 +13,22 @@ reporting par typologie de simulation.
 > Justifications détaillées (game design, perception, KPI, schéma de données) :
 > [`NOTES.md`](NOTES.md)
 
+## Évaluation rapide (correcteur)
+
+`data/warehouse.duckdb` et `reports/` sont **git-ignorés** (régénérables) : un
+clone frais ne contient pas le rapport. Deux options :
+
+- **Sans rien lancer** : un rapport d'exemple est committé →
+  [`docs/benchmark_exemple.html`](docs/benchmark_exemple.html) (copie figée de
+  `reports/benchmark.html`).
+- **Tout régénérer** (le bronze committé suffit, aucun LLM requis) :
+
+```bash
+uv sync
+uv run python src/build_report.py   # dbt deps + dbt build + reports/benchmark.html
+uv run pytest                       # 43 tests moteur + data
+```
+
 ## Arborescence
 
 ```
@@ -24,9 +40,10 @@ reporting par typologie de simulation.
 │   ├── benchmark.py    # runner : matrice de simulations -> couche bronze
 │   ├── datalog.py      # contrat de données (pydantic) + écriture parquet bronze
 │   └── build_report.py # dbt build + rapport HTML par typologie
-├── dbt/                # pipeline médaillon dbt-duckdb (silver + gold + tests)
-├── data/bronze/        # parquet bruts append-only (un fichier par run)
+├── dbt/                # pipeline médaillon dbt-duckdb (seeds + silver + gold + tests)
+├── data/bronze/        # parquet bruts append-only (un fichier par run, v1 + v2)
 ├── reports/            # benchmark.html (rapport régénérable, git-ignoré)
+├── docs/               # benchmark_exemple.html : rapport figé committé (correcteur)
 ├── tests/              # pytest : moteur + pipeline de données
 └── pyproject.toml      # dépendances (uv)
 ```
@@ -226,7 +243,7 @@ uv run python src/benchmark.py --typologies leurre --cerveaux llm_local --rayons
 | `--rayons` | rayons de vision pour `llm_local` uniquement (ex. `1,2` → fenêtres 3×3 et 5×5) | `1,2` |
 | `--typologies` | liste parmi `degage`, `ennemi_chemin`, `leurre`, `aleatoire` | les quatre |
 | `--seeds` | nombre de seeds pour la typologie `aleatoire` (seeds `0 … N-1`) | `5` |
-| `--model` | modèle LLM passé à `cursor-agent` (`llm_local` uniquement) | `sonnet-4` |
+| `--model` | modèle LLM passé à `cursor-agent` (`llm_local` uniquement) | `claude-4-sonnet` |
 | `--max-turns` | plafond de tours par run | `40` |
 | `--objectif` | `premier` (s'arrête au 1er or) \| `tout` (ramasse tout l'or) | `tout` |
 | `--sortie` | dossier bronze de destination | `data/bronze` |
@@ -242,6 +259,16 @@ uv run python src/benchmark.py --typologies leurre --cerveaux llm_local --rayons
 - `llm_local` : ~10 s par décision via `cursor-agent` → peu de seeds, c'est
   voulu (point d'équilibre spec, pas qualité maximale). Nécessite
   `cursor-agent login`.
+
+**Axe « modèles LLM » :** relancer la même matrice avec plusieurs `--model`
+(le bronze committé contient `sonnet-4` et `gpt-5-mini`) : le modèle est loggé
+en bronze, intégré à la variante (`llm_local_r1_<modele>`) et joint au seed dbt
+`modeles_llm` (éditeur, nombre de paramètres, classe de taille) dans le gold.
+
+```bash
+uv run python src/benchmark.py --cerveaux llm_local --rayons 1 \
+  --typologies degage,ennemi_chemin --model gpt-5-mini
+```
 
 ---
 
@@ -290,14 +317,14 @@ uv run python src/visu.py --carte aleatoire --taille 9 --n-or 4 --n-ennemis 2 --
 # Cerveaux LLM (lents ; cursor-agent login requis)
 uv run python src/visu.py --cerveau cursor --carte degage --objectif tout
 uv run python src/visu.py --cerveau llm_local --rayon 1 --carte leurre --objectif tout
-uv run python src/visu.py --cerveau llm_local --rayon 2 --model sonnet-4 --carte ennemi_chemin
+uv run python src/visu.py --cerveau llm_local --rayon 2 --model gpt-5-mini --carte ennemi_chemin
 ```
 
 | Option | Rôle | Défaut |
 |--------|------|--------|
 | `--cerveau` | `greedy` \| `cursor` (LLM perception complète) \| `llm_local` (LLM vision locale) | `greedy` |
 | `--rayon` | rayon de vision pour `llm_local` : `1` = fenêtre 3×3, `2` = 5×5 | `1` |
-| `--model` | modèle LLM (`cursor-agent`) | `sonnet-4` |
+| `--model` | modèle LLM (`cursor-agent`) | `claude-4-sonnet` |
 | `--carte` | `initiale` \| `aleatoire` \| `degage` \| `ennemi_chemin` \| `leurre` | `initiale` |
 | `--objectif` | `premier` (1er or) \| `tout` (tout l'or) | `premier` |
 | `--max-turns` | plafond de tours | `30` |
@@ -329,7 +356,8 @@ En fin de partie, le script affiche : `success`, `tours`, `ors_ramasses`,
 Exécuté automatiquement par `build_report.py`, ou manuellement :
 
 ```bash
-uv run dbt build --project-dir dbt --profiles-dir dbt    # run + tests
+uv run dbt deps --project-dir dbt --profiles-dir dbt     # packages (dbt_utils) — 1re fois
+uv run dbt build --project-dir dbt --profiles-dir dbt    # seeds + modèles + tests
 uv run dbt test --project-dir dbt --profiles-dir dbt       # tests seuls
 uv run dbt run --project-dir dbt --profiles-dir dbt        # modèles sans tests
 ```
@@ -338,7 +366,9 @@ uv run dbt run --project-dir dbt --profiles-dir dbt        # modèles sans tests
 |---------|--------|
 | Projet | `dbt/dbt_project.yml` |
 | Profil | `dbt/profiles.yml` → `data/warehouse.duckdb` |
+| Packages | `dbt/packages.yml` → `dbt_utils` (tests `accepted_range`, `unique_combination_of_columns`) |
 | Sources bronze | parquet `data/bronze/runs/*.parquet`, `data/bronze/turns/*.parquet` |
+| Seed | `modeles_llm` (référentiel modèles : éditeur, n paramètres, classe) |
 | Silver | `stg_runs`, `stg_turns` (vues) |
 | Gold | `kpi_run`, `kpi_typologie`, `distance_glissante` (tables) |
 

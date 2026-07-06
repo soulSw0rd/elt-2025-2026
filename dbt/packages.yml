@@ -1,0 +1,7 @@
+# Dépendances de packages dbt (installées par `dbt deps`, exécuté
+# automatiquement par src/build_report.py avant chaque build).
+# dbt_utils fournit les tests génériques accepted_range / unique_combination_of_columns
+# utilisés dans models/gold/schema.yml.
+packages:
+  - package: dbt-labs/dbt_utils
+    version: [">=1.3.0", "<2.0.0"]

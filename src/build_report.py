@@ -41,7 +41,14 @@ DESCRIPTIONS = {
 
 def lancer_dbt() -> None:
     """Reconstruit silver + gold depuis le bronze (et exécute les tests dbt)."""
-    print(">> dbt build (silver + gold)")
+    print(">> dbt deps (packages : dbt_utils)")
+    res = subprocess.run(
+        ["dbt", "deps", "--project-dir", "dbt", "--profiles-dir", "dbt"],
+        cwd=RACINE,
+    )
+    if res.returncode != 0:
+        sys.exit("dbt deps a échoué : packages dbt indisponibles.")
+    print(">> dbt build (seeds + silver + gold + tests)")
     res = subprocess.run(
         ["dbt", "build", "--project-dir", "dbt", "--profiles-dir", "dbt"],
         cwd=RACINE,
@@ -203,8 +210,9 @@ def construire_rapport() -> None:
             courbe=courbe_distance(df_dist, typologie),
         ))
 
-    colonnes = ["typologie", "variante", "modele", "n_runs", "taux_reussite",
-                "taux_or_ramasse", "pas_par_piece_moyen", "surcout_trajectoire_moyen",
+    colonnes = ["typologie", "variante", "modele", "n_parametres_mds", "classe_taille",
+                "n_runs", "taux_reussite", "taux_or_ramasse", "taux_or_accessible_ramasse",
+                "pas_par_piece_moyen", "surcout_trajectoire_moyen",
                 "deplacements_inutiles_moyens", "coups_bloques_moyens",
                 "invalides_moyens", "latence_moyenne_ms", "latence_p95_ms"]
 

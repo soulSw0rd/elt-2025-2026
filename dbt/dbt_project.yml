@@ -20,3 +20,12 @@ models:
     gold:
       +materialized: table
       +schema: gold
+
+seeds:
+  npc_brain_dbt:
+    # Référentiel des modèles LLM (KPI « nombre de paramètres du modèle »).
+    modeles_llm:
+      +schema: silver
+      +column_types:
+        n_parametres_mds: double
+        parametres_publies: boolean

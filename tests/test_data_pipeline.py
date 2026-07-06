@@ -222,5 +222,40 @@ def test_union_duckdb_sur_bronze(tmp_path):
     assert n == 3
 
 
+def test_evolution_schema_v1_vers_v2(tmp_path):
+    """Éprouve le mécanisme d'évolution : un parquet v1 (sans n_or_accessible)
+    et un parquet v2 s'unionnent via union_by_name ; la colonne manquante
+    arrive en NULL pour le run v1 (que le silver absorbe par COALESCE)."""
+    duckdb = pytest.importorskip("duckdb")
+    import pyarrow as pa
+
+    # Run v2 écrit par le contrat actuel.
+    run_v2, turns_v2 = _run_et_records(n_or_accessible=3)
+    ecrire_bronze(run_v2, turns_v2, dossier=tmp_path)
+    assert run_v2.schema_version == 2
+
+    # Run v1 simulé : même contrat SANS la colonne v2 (schéma d'époque).
+    run_v1, _ = _run_et_records()
+    donnees_v1 = run_v1.model_dump()
+    donnees_v1["schema_version"] = 1
+    del donnees_v1["n_or_accessible"]
+    schema_v1 = pa.schema([f for f in datalog.RUN_SCHEMA if f.name != "n_or_accessible"])
+    import pyarrow.parquet as _pq
+    _pq.write_table(
+        pa.Table.from_pylist([donnees_v1], schema=schema_v1),
+        tmp_path / "runs" / f"run_{run_v1.run_id}.parquet",
+    )
+
+    con = duckdb.connect()
+    df = con.sql(
+        f"select schema_version, n_or_accessible, "
+        f"coalesce(n_or_accessible, n_or_initial) as absorbe "
+        f"from read_parquet('{tmp_path}/runs/*.parquet', union_by_name=true) "
+        f"order by schema_version"
+    ).fetchall()
+    assert df[0] == (1, None, 3)   # v1 : NULL, absorbé par n_or_initial
+    assert df[1] == (2, 3, 3)      # v2 : valeur mesurée par BFS
+
+
 def test_run_id_unique():
     assert nouveau_run_id() != nouveau_run_id()

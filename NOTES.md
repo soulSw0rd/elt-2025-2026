@@ -39,8 +39,10 @@ Le but pédagogique : comparer une **logique algorithmique** à une décision **
 | ✅ | **Contrat de données** (`src/datalog.py`) + couche bronze parquet append-only |
 | ✅ | **Pipeline médaillon** dbt-duckdb (silver/gold + tests de données) |
 | ✅ | **Reporting HTML** par typologie, régénérable (`src/build_report.py`) |
-| ✅ | Suite de tests (42) chargée depuis le notebook |
-| ⬜ | Ennemis mobiles, axe « modèles LLM » élargi |
+| ✅ | Suite de tests (43 pytest + 32 dbt) chargée depuis le notebook |
+| ✅ | **Axe « modèles LLM » exploité** : plusieurs modèles benchmarkés + seed `modeles_llm` (KPI paramètres) |
+| ✅ | **Évolution de schéma éprouvée** : bronze v1 + v2 (`n_or_accessible`), absorbée en silver |
+| ⬜ | Ennemis mobiles |
 
 ---
 
@@ -326,12 +328,13 @@ Manhattan, delta directionnel), déplacements (case vide, ramassage, blocage),
 contrat (`MOVES`, `PlayerDecision`), boucle de jeu, `decide_greedy`, et le suivi
 (`game_loop_suivi`, objectifs `premier`/`tout`, `carte_aleatoire`, `comparer`).
 
-`tests/test_data_pipeline.py` (17 tests) couvre le volet data : perception
+`tests/test_data_pipeline.py` (18 tests) couvre le volet data : perception
 locale (fenêtre, bords `#`, absence de delta pré-calculé), arbitre BFS
 (contournement, inaccessibilité), layouts (bien formés, le leurre piège bien le
 greedy), télémétrie enrichie, contrat `datalog` (écriture/relecture parquet,
-append-only, union DuckDB multi-runs). S'y ajoutent les **tests dbt** exécutés
-par `dbt build`/`dbt test`.
+append-only, union DuckDB multi-runs, **évolution de schéma v1→v2**). S'y
+ajoutent les **32 tests dbt** (dont dbt_utils `accepted_range` et
+`unique_combination_of_columns`) exécutés par `dbt build`/`dbt test`.
 
 ```bash
 uv run pytest -v
@@ -385,7 +388,10 @@ charge LLM**, pas la meilleure qualité absolue.
 2. **Typologie de carte** : `degage` / `ennemi_chemin` / `leurre` / `aleatoire`
    (chaque typologie a sa section de reporting).
 3. **Modèle LLM** : paramètre `--model` du runner, loggé en bronze (colonne
-   `modele`) — l'axe est ouvert sans exploser le temps de run (~10 s/décision).
+   `modele`) et intégré à la `variante` en silver (`llm_local_r1_<modele>`).
+   **Axe réellement exploité** : deux modèles benchmarkés (`sonnet-4` Anthropic,
+   `gpt-5-mini` OpenAI) sur les mêmes typologies — comparaison inter-éditeurs
+   à périmètre de vision égal (rayon 1).
 
 **KPI (agrégats métiers, table gold `kpi_typologie`)** :
 
@@ -393,12 +399,14 @@ charge LLM**, pas la meilleure qualité absolue.
 |-----|------------|-------------------|
 | `taux_reussite` | runs avec TOUT l'or ramassé / runs | qualité binaire |
 | `taux_or_ramasse` | ors ramassés / ors initiaux | qualité graduée (départage les échecs) |
+| `taux_or_accessible_ramasse` | ors ramassés / ors **atteignables** (BFS, colonne v2) | qualité corrigée de l'inaccessibilité (cartes aléatoires denses) |
 | `pas_par_piece_moyen` | tours joués / pièces ramassées | efficacité brute |
 | `surcout_trajectoire_moyen` | pas réels / pas optimaux BFS (runs réussis) | 1.0 = trajet parfait ; mesure la qualité de navigation à périmètre égal |
 | `deplacements_inutiles_moyens` | coups n'ayant ni ramassé ni réduit la distance à l'or | hésitations, allers-retours |
 | `coups_bloques_moyens` | coups proposés contre un mur/ennemi/bord | compréhension des règles par le cerveau |
 | `invalides_moyens` | décisions non parsables (`None`) | robustesse du contrat de sortie LLM |
 | `latence_moyenne_ms` / `latence_p95_ms` | coût par décision | le prix de l'intelligence |
+| `n_parametres_mds` / `classe_taille` | taille du modèle (seed dbt `modeles_llm`) | KPI « nombre de paramètres » de la spec : `0` pour la baseline, valeur publiée pour les modèles open-weights (ex. kimi-k2.7 ~1000 Mds), `NULL` documenté pour les modèles propriétaires (Anthropic/OpenAI ne publient pas) |
 | `distance_glissante_3` (table dédiée) | moyenne glissante (3 tours) de la distance à l'or | convergence : décroît si le cerveau progresse, stagne s'il est perdu |
 
 Lecture attendue : `greedy` est gratuit et optimal en terrain dégagé mais échoue
@@ -437,6 +445,19 @@ pyarrow explicite** (types stables même quand une colonne est entièrement NULL
 4. **la couche silver absorbe** : `COALESCE`/défauts dans `stg_runs`/`stg_turns`
    normalisent les versions successives — le gold ne voit qu'un seul schéma.
 
+**Mécanisme éprouvé en conditions réelles (v1 → v2)** — pas seulement théorique :
+
+- la **v2** du contrat ajoute `n_or_accessible` au `RunRecord` (nombre d'ors
+  atteignables par BFS depuis le départ, calculé par `benchmark.py`) ;
+- le bronze committé contient **les deux générations** de fichiers : les runs
+  v1 d'origine (sans la colonne) et les runs v2 (greedy + LLM multi-modèles) ;
+- à la lecture, `union_by_name` remonte `n_or_accessible = NULL` pour les v1 ;
+  `stg_runs` absorbe par `COALESCE(n_or_accessible, n_or_initial)`
+  (approximation documentée : les layouts figés ont tout l'or accessible) ;
+- le KPI v2 `taux_or_accessible_ramasse` fonctionne donc sur tout l'historique ;
+- test automatisé : `test_evolution_schema_v1_vers_v2` (pytest) écrit un parquet
+  au schéma v1 + un v2, vérifie l'union et l'absorption COALESCE.
+
 ### Pipeline médaillon (parquet + DuckDB + dbt-duckdb, imposés par la spec)
 
 ```
@@ -449,10 +470,17 @@ gold    kpi_run, kpi_typologie,    tables DuckDB : KPI par run, agrégats par
 ```
 
 - Warehouse : `data/warehouse.duckdb` (régénérable, non versionné) ;
-- **Tests dbt** : `unique`/`not_null` sur `run_id`, `accepted_values` sur
-  `cerveau`/`typologie`/`direction`, `relationships` turns→runs, test singulier
-  d'unicité `(typologie, variante)` sur la table de reporting ;
-- Commandes : `uv run dbt build --project-dir dbt --profiles-dir dbt` (depuis la
+- **Seed dbt** : `modeles_llm.csv` (référentiel des modèles : éditeur,
+  `n_parametres_mds`, classe de taille) joint au gold — c'est le KPI « nombre
+  de paramètres du modèle » de la spec ;
+- **Packages dbt** : `packages.yml` déclare `dbt_utils` (installé par
+  `dbt deps`, automatique dans `build_report.py`) ;
+- **Tests dbt (32)** : `unique`/`not_null` sur `run_id`, `accepted_values` sur
+  `cerveau`/`typologie`/`direction`, `relationships` turns→runs, et via
+  dbt_utils : `unique_combination_of_columns (typologie, variante)` sur la
+  table de reporting, `accepted_range` sur les taux (0-1) et latences (≥ 0) ;
+- Commandes : `uv run dbt deps --project-dir dbt --profiles-dir dbt` puis
+  `uv run dbt build --project-dir dbt --profiles-dir dbt` (depuis la
   racine : les chemins parquet/duckdb y sont relatifs).
 
 ### Reporting (par typologie)

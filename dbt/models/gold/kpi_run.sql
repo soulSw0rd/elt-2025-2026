@@ -29,6 +29,7 @@ select
     r.objectif,
     r.max_turns,
     r.n_or_initial,
+    r.n_or_accessible,
     r.pas_optimaux,
     r.success,
     r.turns,
@@ -40,6 +41,8 @@ select
     t.latence_p95_ms,
     t.distance_or_moyenne,
     r.ors_ramasses::double / nullif(r.n_or_initial, 0)       as taux_or_ramasse,
+    -- v2 : taux rapporté aux ors ATTEIGNABLES (plus juste si un or est emmuré)
+    r.ors_ramasses::double / nullif(r.n_or_accessible, 0)    as taux_or_accessible_ramasse,
     case when r.ors_ramasses > 0
          then r.turns::double / r.ors_ramasses end           as pas_par_piece,
     case when r.success and coalesce(r.pas_optimaux, 0) > 0

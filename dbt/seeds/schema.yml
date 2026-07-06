@@ -1,0 +1,16 @@
+version: 2
+
+seeds:
+  - name: modeles_llm
+    description: >
+      Référentiel des modèles LLM benchmarkés : éditeur, nombre de paramètres
+      (en milliards) quand il est public, classe de taille. Alimente le KPI
+      « nombre de paramètres du modèle » de kpi_typologie. Les modèles
+      propriétaires (Anthropic/OpenAI) ne publient pas leurs paramètres :
+      n_parametres_mds reste NULL, la classe de taille sert d'ordre de grandeur.
+      La ligne `aucun` (0 paramètre) couvre la baseline algorithmique greedy.
+    columns:
+      - name: modele
+        tests: [unique, not_null]
+      - name: classe_taille
+        tests: [not_null]

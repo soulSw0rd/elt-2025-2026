@@ -14,6 +14,15 @@ Principes de cohérence quand la simulation évolue (question de la spec) :
 - **schémas pyarrow explicites** : les types sont stables même quand une
   colonne est entièrement NULL dans un fichier (ex. `modele` pour greedy),
   ce qui garantit l'union sans conflit de tous les parquet dans DuckDB.
+
+Historique des versions du contrat (mécanisme éprouvé en conditions réelles :
+le bronze committé contient des runs v1 ET v2, unis par `union_by_name`) :
+
+- v1 : contrat initial ;
+- v2 : ajout de `n_or_accessible` (RunRecord) — nombre d'ors réellement
+  atteignables par BFS depuis la position de départ. Les runs v1 n'ont pas la
+  colonne (NULL à la lecture) ; le silver l'absorbe par
+  COALESCE(n_or_accessible, n_or_initial), approximation documentée.
 """
 from __future__ import annotations
 
@@ -25,7 +34,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 BRONZE_DIR = Path(__file__).resolve().parents[1] / "data" / "bronze"
 
@@ -49,6 +58,8 @@ class RunRecord(BaseModel):
     max_turns: int
     objectif: str
     pas_optimaux: int | None = None  # arbitre BFS (None = or inaccessible)
+    # v2 : ors atteignables par BFS au départ (None = run v1, avant la colonne)
+    n_or_accessible: int | None = None
     # Résultat global
     success: bool
     turns: int
@@ -91,6 +102,7 @@ RUN_SCHEMA = pa.schema([
     ("max_turns", pa.int32()),
     ("objectif", pa.string()),
     ("pas_optimaux", pa.int32()),
+    ("n_or_accessible", pa.int32()),
     ("success", pa.bool_()),
     ("turns", pa.int32()),
     ("ors_ramasses", pa.int32()),
@@ -135,6 +147,7 @@ def records_depuis_resultat(
     rayon_vision: int | None = None,
     seed: int | None = None,
     pas_optimaux: int | None = None,
+    n_or_accessible: int | None = None,
 ) -> tuple[RunRecord, list[TurnRecord]]:
     """Convertit un résultat de `game_loop_suivi` en records bronze (le contrat)."""
     run_id = run_id or nouveau_run_id()
@@ -153,6 +166,7 @@ def records_depuis_resultat(
         max_turns=max_turns,
         objectif=objectif,
         pas_optimaux=pas_optimaux,
+        n_or_accessible=n_or_accessible,
         success=resultat["success"],
         turns=resultat["turns"],
         ors_ramasses=resultat["ors_ramasses"],

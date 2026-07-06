@@ -31,7 +31,7 @@ def main() -> None:
                          "llm_local = LLM à vision locale (fenêtre --rayon)")
     ap.add_argument("--rayon", type=int, default=1,
                     help="rayon de vision du cerveau llm_local (1 = 3x3, 2 = 5x5)")
-    ap.add_argument("--model", default="sonnet-4", help="modèle LLM (cursor-agent)")
+    ap.add_argument("--model", default="claude-4-sonnet", help="modèle LLM (cursor-agent)")
     ap.add_argument("--carte", choices=["initiale", "aleatoire", "degage", "ennemi_chemin", "leurre"],
                     default="initiale")
     ap.add_argument("--objectif", choices=["premier", "tout"], default="premier",

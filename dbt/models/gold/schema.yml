@@ -7,10 +7,25 @@ models:
       - name: run_id
         tests: [unique, not_null]
       - name: taux_or_ramasse
-        tests: [not_null]
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: taux_or_accessible_ramasse
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
 
   - name: kpi_typologie
     description: Agrégats métiers par typologie × variante de cerveau (table du reporting).
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [typologie, variante]
     columns:
       - name: typologie
         tests: [not_null]
@@ -18,6 +33,17 @@ models:
         tests: [not_null]
       - name: n_runs
         tests: [not_null]
+      - name: taux_reussite
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: latence_moyenne_ms
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
 
   - name: distance_glissante
     description: Moyenne glissante (3 tours) de la distance à l'or, par run.

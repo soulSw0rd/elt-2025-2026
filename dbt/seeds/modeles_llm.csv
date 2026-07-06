@@ -1,0 +1,6 @@
+modele,editeur,n_parametres_mds,classe_taille,parametres_publies,commentaire
+aucun,-,0,algorithmique,true,baseline greedy : zero parametre de modele
+sonnet-4,Anthropic,,frontier,false,nombre de parametres non publie (modele proprietaire)
+claude-4-sonnet,Anthropic,,frontier,false,nombre de parametres non publie (modele proprietaire)
+gpt-5-mini,OpenAI,,compact,false,nombre de parametres non publie (modele proprietaire)
+kimi-k2.7-code,Moonshot AI,1000,frontier MoE,true,open-weights : ~1000 Mds parametres totaux (~32 Mds actifs par token)

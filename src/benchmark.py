@@ -63,6 +63,13 @@ def carte_pour(config, ns):
     return ns["LAYOUTS"][config["typologie"]]
 
 
+def ors_accessibles(carte, ns) -> int:
+    """Nombre d'ors atteignables par BFS depuis le départ (colonne v2 du contrat)."""
+    joueur = tuple(int(x) for x in ns["localize"](carte, ns["PLAYER"])[0])
+    dist = ns["_bfs_distances"](carte, joueur)
+    return int(sum(1 for (r, c) in ns["localize"](carte, ns["GOLD"]) if dist[r, c] >= 0))
+
+
 def executer_run(config, args, ns) -> dict:
     carte = carte_pour(config, ns)
 
@@ -94,6 +101,7 @@ def executer_run(config, args, ns) -> dict:
         max_turns=args.max_turns,
         objectif=args.objectif,
         pas_optimaux=ns["pas_optimaux"](carte, objectif=args.objectif),
+        n_or_accessible=ors_accessibles(carte, ns),
     )
     chemins = ecrire_bronze(run, turns, dossier=args.sortie)
     return {"run": run, "chemins": chemins}
@@ -109,7 +117,7 @@ def main() -> None:
                     help=f"liste parmi : {','.join(TYPOLOGIES)}")
     ap.add_argument("--seeds", type=int, default=5,
                     help="nombre de seeds pour la typologie aleatoire")
-    ap.add_argument("--model", default="sonnet-4", help="modèle LLM (cursor-agent)")
+    ap.add_argument("--model", default="claude-4-sonnet", help="modèle LLM (cursor-agent)")
     ap.add_argument("--max-turns", type=int, default=40)
     ap.add_argument("--objectif", choices=["premier", "tout"], default="tout")
     ap.add_argument("--sortie", type=Path, default=None,
