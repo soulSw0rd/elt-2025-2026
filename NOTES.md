@@ -430,9 +430,10 @@ pyarrow explicite** (types stables même quand une colonne est entièrement NULL
   (`taille_carte`, `n_or_initial`, `n_ennemis`, `max_turns`, `objectif`,
   `pas_optimaux`), résultat (`success`, `turns`, `ors_ramasses`, `invalides`,
   `duree_ms`, `latence_moyenne_ms`).
-- **`TurnRecord`** (1 ligne/tour) : `run_id`, `tour`, `direction`, `latence_ms`,
-  `bouge`, `or_ramasse`, positions avant/après, `distance_or` (mesurée par
-  l'arbitre APRÈS le coup), `ors_restants`.
+- **`TurnRecord`** (1 ligne/tour) : `run_id`, `tour`, `direction`, `raison` (v4 :
+  explication déclarée par le LLM, `NULL` pour greedy ou tours antérieurs),
+  `latence_ms`, `bouge`, `or_ramasse`, positions avant/après, `distance_or`
+  (mesurée par l'arbitre APRÈS le coup), `ors_restants`.
 
 ### Cohérence quand la simulation évolue (question de la spec)
 
@@ -445,18 +446,22 @@ pyarrow explicite** (types stables même quand une colonne est entièrement NULL
 4. **la couche silver absorbe** : `COALESCE`/défauts dans `stg_runs`/`stg_turns`
    normalisent les versions successives — le gold ne voit qu'un seul schéma.
 
-**Mécanisme éprouvé en conditions réelles (v1 → v2)** — pas seulement théorique :
+**Mécanisme éprouvé en conditions réelles (v1 → v4)** — pas seulement théorique :
 
 - la **v2** du contrat ajoute `n_or_accessible` au `RunRecord` (nombre d'ors
   atteignables par BFS depuis le départ, calculé par `benchmark.py`) ;
-- le bronze committé contient **les deux générations** de fichiers : les runs
-  v1 d'origine (sans la colonne) et les runs v2 (greedy + LLM multi-modèles) ;
-- à la lecture, `union_by_name` remonte `n_or_accessible = NULL` pour les v1 ;
-  `stg_runs` absorbe par `COALESCE(n_or_accessible, n_or_initial)`
-  (approximation documentée : les layouts figés ont tout l'or accessible) ;
-- le KPI v2 `taux_or_accessible_ramasse` fonctionne donc sur tout l'historique ;
-- test automatisé : `test_evolution_schema_v1_vers_v2` (pytest) écrit un parquet
-  au schéma v1 + un v2, vérifie l'union et l'absorption COALESCE.
+- la **v3** ajoute `iteration` et `memoire` (challenge itératif des LLM locaux :
+  n° de partie dans une séquence et présence d'un résumé d'expérience dans le
+  prompt) ;
+- la **v4** ajoute `raison` au `TurnRecord` (phrase renvoyée par le LLM dans le
+  JSON `{"direction", "raison"}` — explicabilité du challenge) ;
+- les runs des quatre versions coexistent dans le bronze **local**
+  (append-only) ; à la lecture, `union_by_name` remonte les colonnes absentes
+  en NULL ;
+- `stg_runs` absorbe par `COALESCE(n_or_accessible, n_or_initial)` et
+  `COALESCE(memoire, false)` ; `stg_turns` expose `raison` telle quelle ;
+- test automatisé : `test_evolution_schema_v1_a_v4` (pytest) — **sans
+  dépendre de données versionnées dans git** (bronze git-ignoré).
 
 ### Pipeline médaillon (parquet + DuckDB + dbt-duckdb, imposés par la spec)
 
@@ -503,3 +508,80 @@ convergence). Pas de temps réel : on relance après chaque lot de runs
   endpoint local (LM Studio) permettrait des volumes plus grands.
 - **`pas_optimaux` en objectif `tout`** : permutations exactes — OK pour ≤ 5 ors,
   à remplacer par une heuristique au-delà.
+
+---
+
+## 16. Challenge LLM locaux (carte `defi`)
+
+Expérience documentée dans le README (§ Challenge LLM) ; le notebook
+`comparatif_llm.ipynb` ne contient que les **graphiques** — cette section
+détaille le protocole, les inputs des IA et la lecture des résultats.
+
+### Carte `defi` (layout figé, 7×7)
+
+- **1 or** en (4,5) — succès binaire (0 ou 1), métrique de progression claire ;
+- **2 ennemis** adjacents au chemin direct (2,5) et (4,3) — menace visible en
+  vision 3×3 sans couper la diagonale optimale ;
+- **or hors vision initiale** : le joueur en (1,1) ne voit pas l'or au tour 1 ;
+- **référence haute** : `decide_greedy` + perception complète gagne en **7 tours**
+  (= `pas_optimaux` BFS).
+
+### Protocole « coach » à aide graduée
+
+La couche bronze est la **database** : append-only, horodatée. Avant chaque
+partie itérative, `resume_experience()` relit les parties précédentes du même
+modèle sur la même carte (`iteration` non NULL ; les runs batch restent témoin).
+
+| Niveau | Déclencheur | Contenu injecté |
+|--------|-------------|-----------------|
+| 0 | itération 1 | aucune mémoire |
+| 1 | ≥ 1 échec | cases déjà visitées + consigne anti-boucle |
+| 2 | ≥ 2 échecs sans or | **coach BFS** : à chaque tour, consigne finale du prompt « joue \<direction\> » (prochain coup optimal depuis la position actuelle) |
+| 3 | ≥ 1 succès | **rejouer sa victoire** : depuis chaque position traversée lors de la partie gagnante, rappel du coup alors joué ; rattrapage BFS si déviation |
+
+À `temperature=0`, la seule variable entre itérations est la mémoire — progression
+attribuable au protocole, pas au hasard.
+
+**Leçons de formulation** (rétrospective) :
+
+- mentionner une direction **interdite** (« GAUCHE bloquée ») pousse les
+  nano-modèles à jouer GAUCHE (recopie des mots du prompt) ;
+- un plan statique multi-coups (« BAS 3 fois puis DROITE 4 fois ») n'est pas
+  suivi — seule la consigne **un coup à la fois, en fin de prompt**, fonctionne.
+
+### Inputs des IA (par tour)
+
+**Fixe (prompt)** : règles, légende, priorités, sémantique des directions,
+format JSON `{"direction", "raison"}`.
+
+**Variable (`perception_locale`, rayon 1)** :
+
+- fenêtre 3×3 centrée sur le pion ;
+- position (ligne, colonne), taille de grille ;
+- compteur d'ors restants (sans positions) ;
+- 8 derniers coups (historique intra-partie) ;
+- bloc « expérience » (parties précédentes, niveaux 1-3) ;
+- consigne finale du coach (niveaux 2-3).
+
+### Traçage mouvements et raisonnements (contrat v4)
+
+- **`TurnRecord.raison`** : phrase déclarée par le LLM, loggée en bronze, exposée
+  en `stg_turns` ;
+- **trajectoires** (notebook) : positions `pos_avant` → `pos_apres` par itération,
+  une couleur par n° de partie ;
+- **table des raisons** (notebook) : tours clés de la dernière itération — confronter
+  `raison` déclarée et `effet` (`avance`, `bloqué`, `OR RAMASSÉ`).
+
+Exemple d'incohérence : raison « HAUT permet de progresser vers l'or » répétée
+alors que `effet=bloqué` contre le bord nord (llama, itération 5).
+
+### Résultats observés (carte `defi`, 3 modèles × 5 itérations)
+
+- **itérations 1-2** : échec (0 or), ~15-19 coups bloqués — exploration erratique,
+  politique « une direction × 30 tours » ;
+- **itération 3** (coach niveau 2) : les 3 modèles trouvent l'or (7-9 tours) ;
+- **itérations 4-5** (niveau 3) : gemma et qwen stabilisent ; llama peut rechuter
+  s'il dévie du chemin mémorisé.
+
+Les graphiques correspondants sont dans `comparatif_llm.ipynb` (section carte
+`defi` uniquement pour les courbes d'itération).

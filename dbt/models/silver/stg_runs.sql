@@ -5,7 +5,9 @@
 --   + modèle LLM le cas échéant : l'axe « modèles » est comparable directement) ;
 -- - COALESCE sur les colonnes optionnelles pour absorber les anciens schémas :
 --   n_or_accessible est arrivé au schema_version 2 ; pour les runs v1 on
---   l'approxime par n_or_initial (tous les layouts figés ont l'or accessible).
+--   l'approxime par n_or_initial (tous les layouts figés ont l'or accessible) ;
+--   iteration/memoire sont arrivés au schema_version 3 (challenge itératif) :
+--   NULL pour tous les runs antérieurs = partie hors séquence, sans mémoire.
 
 with source as (
     select * from {{ source('bronze', 'runs') }}
@@ -37,6 +39,8 @@ select
     objectif,
     pas_optimaux,
     coalesce(n_or_accessible, n_or_initial)            as n_or_accessible,
+    iteration,
+    coalesce(memoire, false)                           as memoire,
     success,
     turns,
     ors_ramasses,

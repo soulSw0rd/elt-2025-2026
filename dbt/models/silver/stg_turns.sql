@@ -4,6 +4,8 @@
 -- - deplacement_inutile : le coup n'a NI ramassé d'or NI réduit la distance
 --   (NULL quand injugeable : décision invalide, 1er tour, plus d'or) ;
 -- - bloque : le cerveau a proposé un coup impossible (mur/ennemi/bord).
+-- La colonne v4 `raison` (explication du LLM) est exposée telle quelle :
+-- NULL pour les cerveaux algorithmiques et les tours antérieurs au contrat v4.
 
 with source as (
     select * from {{ source('bronze', 'turns') }}
@@ -22,6 +24,7 @@ enrichi as (
         schema_version,
         tour,
         direction,
+        raison,
         latence_ms,
         bouge,
         or_ramasse,

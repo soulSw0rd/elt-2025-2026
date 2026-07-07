@@ -15,14 +15,22 @@ Principes de cohérence quand la simulation évolue (question de la spec) :
   colonne est entièrement NULL dans un fichier (ex. `modele` pour greedy),
   ce qui garantit l'union sans conflit de tous les parquet dans DuckDB.
 
-Historique des versions du contrat (mécanisme éprouvé en conditions réelles :
-le bronze committé contient des runs v1 ET v2, unis par `union_by_name`) :
+Historique des versions du contrat (mécanisme éprouvé par le test pytest
+`test_evolution_schema_v1_v2_v3` : parquet v1 + v2 + v3 synthétiques, union
+`union_by_name`, absorption COALESCE en silver) :
 
 - v1 : contrat initial ;
 - v2 : ajout de `n_or_accessible` (RunRecord) — nombre d'ors réellement
   atteignables par BFS depuis la position de départ. Les runs v1 n'ont pas la
   colonne (NULL à la lecture) ; le silver l'absorbe par
-  COALESCE(n_or_accessible, n_or_initial), approximation documentée.
+  COALESCE(n_or_accessible, n_or_initial), approximation documentée ;
+- v3 : ajout de `iteration` et `memoire` (RunRecord) — challenge itératif des
+  LLM locaux : n° de partie dans une séquence et présence d'un résumé
+  d'expérience des parties précédentes dans le prompt. NULL pour tous les
+  runs antérieurs (pas de séquence, pas de mémoire) ;
+- v4 : ajout de `raison` (TurnRecord) — explication en une phrase donnée par
+  le LLM pour chaque décision (explicabilité du challenge). NULL pour les
+  cerveaux algorithmiques et les tours antérieurs à la colonne.
 """
 from __future__ import annotations
 
@@ -34,7 +42,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 
 BRONZE_DIR = Path(__file__).resolve().parents[1] / "data" / "bronze"
 
@@ -60,6 +68,9 @@ class RunRecord(BaseModel):
     pas_optimaux: int | None = None  # arbitre BFS (None = or inaccessible)
     # v2 : ors atteignables par BFS au départ (None = run v1, avant la colonne)
     n_or_accessible: int | None = None
+    # v3 : challenge itératif (None = run hors séquence, avant la colonne)
+    iteration: int | None = None     # n° de partie dans la séquence (1, 2, ...)
+    memoire: bool | None = None      # résumé d'expérience injecté dans le prompt ?
     # Résultat global
     success: bool
     turns: int
@@ -76,6 +87,9 @@ class TurnRecord(BaseModel):
     run_id: str
     tour: int
     direction: str | None            # None = décision invalide
+    # v4 : raisonnement déclaré par le LLM (None = cerveau algorithmique,
+    # décision invalide, ou tour antérieur à la colonne)
+    raison: str | None = None
     latence_ms: int
     bouge: bool
     or_ramasse: bool
@@ -103,6 +117,8 @@ RUN_SCHEMA = pa.schema([
     ("objectif", pa.string()),
     ("pas_optimaux", pa.int32()),
     ("n_or_accessible", pa.int32()),
+    ("iteration", pa.int32()),
+    ("memoire", pa.bool_()),
     ("success", pa.bool_()),
     ("turns", pa.int32()),
     ("ors_ramasses", pa.int32()),
@@ -116,6 +132,7 @@ TURN_SCHEMA = pa.schema([
     ("run_id", pa.string()),
     ("tour", pa.int32()),
     ("direction", pa.string()),
+    ("raison", pa.string()),
     ("latence_ms", pa.int64()),
     ("bouge", pa.bool_()),
     ("or_ramasse", pa.bool_()),
@@ -148,6 +165,8 @@ def records_depuis_resultat(
     seed: int | None = None,
     pas_optimaux: int | None = None,
     n_or_accessible: int | None = None,
+    iteration: int | None = None,
+    memoire: bool | None = None,
 ) -> tuple[RunRecord, list[TurnRecord]]:
     """Convertit un résultat de `game_loop_suivi` en records bronze (le contrat)."""
     run_id = run_id or nouveau_run_id()
@@ -167,6 +186,8 @@ def records_depuis_resultat(
         objectif=objectif,
         pas_optimaux=pas_optimaux,
         n_or_accessible=n_or_accessible,
+        iteration=iteration,
+        memoire=memoire,
         success=resultat["success"],
         turns=resultat["turns"],
         ors_ramasses=resultat["ors_ramasses"],
@@ -180,6 +201,7 @@ def records_depuis_resultat(
             run_id=run_id,
             tour=h["tour"],
             direction=h["direction"],
+            raison=h.get("raison"),
             latence_ms=h["latence_ms"],
             bouge=h["bouge"],
             or_ramasse=h["or_ramasse"],

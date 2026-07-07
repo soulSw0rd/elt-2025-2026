@@ -21,7 +21,11 @@ dist/
 .ipynb_checkpoints/
 .mypy_cache/
 
-# Data engineering (régénérable : le bronze committé suffit à tout reconstruire)
+# Data engineering (régénérable localement — ne pas versionner)
+data/bronze/runs/*
+!data/bronze/runs/.gitkeep
+data/bronze/turns/*
+!data/bronze/turns/.gitkeep
 data/warehouse.duckdb
 dbt/target/
 dbt/dbt_packages/
@@ -29,5 +33,5 @@ dbt/logs/
 dbt/.user.yml
 logs/
 
-# Reporting (régénérable via reporting : dbt build + rebuild dataviz)
+# Reporting (régénérable : benchmark.py puis build_report.py)
 reports/

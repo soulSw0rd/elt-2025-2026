@@ -122,7 +122,9 @@ def test_pas_optimaux_sans_or():
 def test_layouts_bien_formes():
     for nom, m in LAYOUTS.items():
         assert int((m == PLAYER).sum()) == 1, nom
-        assert int((m == GOLD).sum()) >= 2, nom
+        # "defi" est volontairement mono-or (succès binaire du challenge LLM)
+        or_minimum = 1 if nom == "defi" else 2
+        assert int((m == GOLD).sum()) >= or_minimum, nom
         # tout l'or doit rester accessible (sinon la typologie est injouable)
         assert pas_optimaux(m, "tout") is not None, nom
 
@@ -222,39 +224,78 @@ def test_union_duckdb_sur_bronze(tmp_path):
     assert n == 3
 
 
-def test_evolution_schema_v1_vers_v2(tmp_path):
-    """Éprouve le mécanisme d'évolution : un parquet v1 (sans n_or_accessible)
-    et un parquet v2 s'unionnent via union_by_name ; la colonne manquante
-    arrive en NULL pour le run v1 (que le silver absorbe par COALESCE)."""
+def _ecrire_run_ancien_schema(tmp_path, version: int, colonnes_absentes: set[str],
+                              **surcharges):
+    """Écrit un parquet simulant un run d'un ancien contrat (colonnes en moins)."""
+    import pyarrow as pa
+    import pyarrow.parquet as _pq
+
+    run, _ = _run_et_records(**surcharges)
+    donnees = run.model_dump()
+    donnees["schema_version"] = version
+    for col in colonnes_absentes:
+        del donnees[col]
+    schema = pa.schema([f for f in datalog.RUN_SCHEMA if f.name not in colonnes_absentes])
+    _pq.write_table(
+        pa.Table.from_pylist([donnees], schema=schema),
+        tmp_path / "runs" / f"run_{run.run_id}.parquet",
+    )
+
+
+def test_evolution_schema_v1_a_v4(tmp_path):
+    """Éprouve le mécanisme d'évolution sur les quatre versions du contrat :
+    v1 (sans n_or_accessible), v2 (sans iteration/memoire), v3 (sans raison
+    dans les turns) et v4 (actuel) s'unionnent via union_by_name ; les
+    colonnes manquantes arrivent en NULL (que le silver absorbe par COALESCE)."""
     duckdb = pytest.importorskip("duckdb")
     import pyarrow as pa
-
-    # Run v2 écrit par le contrat actuel.
-    run_v2, turns_v2 = _run_et_records(n_or_accessible=3)
-    ecrire_bronze(run_v2, turns_v2, dossier=tmp_path)
-    assert run_v2.schema_version == 2
-
-    # Run v1 simulé : même contrat SANS la colonne v2 (schéma d'époque).
-    run_v1, _ = _run_et_records()
-    donnees_v1 = run_v1.model_dump()
-    donnees_v1["schema_version"] = 1
-    del donnees_v1["n_or_accessible"]
-    schema_v1 = pa.schema([f for f in datalog.RUN_SCHEMA if f.name != "n_or_accessible"])
     import pyarrow.parquet as _pq
-    _pq.write_table(
-        pa.Table.from_pylist([donnees_v1], schema=schema_v1),
-        tmp_path / "runs" / f"run_{run_v1.run_id}.parquet",
-    )
+
+    # Run v4 écrit par le contrat actuel (turns avec colonne raison).
+    run_v4, turns_v4 = _run_et_records(n_or_accessible=3, iteration=2, memoire=True)
+    ecrire_bronze(run_v4, turns_v4, dossier=tmp_path)
+    assert run_v4.schema_version == 4
+
+    # Runs v1 à v3 simulés : contrats d'époque (colonnes postérieures absentes).
+    _ecrire_run_ancien_schema(tmp_path, 1, {"n_or_accessible", "iteration", "memoire"})
+    _ecrire_run_ancien_schema(tmp_path, 2, {"iteration", "memoire"}, n_or_accessible=3)
+    _ecrire_run_ancien_schema(tmp_path, 3, set(), n_or_accessible=3, iteration=1,
+                              memoire=False)
 
     con = duckdb.connect()
     df = con.sql(
         f"select schema_version, n_or_accessible, "
-        f"coalesce(n_or_accessible, n_or_initial) as absorbe "
+        f"coalesce(n_or_accessible, n_or_initial) as absorbe, "
+        f"iteration, coalesce(memoire, false) as memoire_absorbee "
         f"from read_parquet('{tmp_path}/runs/*.parquet', union_by_name=true) "
         f"order by schema_version"
     ).fetchall()
-    assert df[0] == (1, None, 3)   # v1 : NULL, absorbé par n_or_initial
-    assert df[1] == (2, 3, 3)      # v2 : valeur mesurée par BFS
+    assert df[0] == (1, None, 3, None, False)  # v1 : tout NULL, absorbé
+    assert df[1] == (2, 3, 3, None, False)     # v2 : BFS présent, itératif NULL
+    assert df[2] == (3, 3, 3, 1, False)        # v3 : itératif présent
+    assert df[3] == (4, 3, 3, 2, True)         # v4 : contrat complet
+
+    # Côté TURNS : un parquet v3 (sans colonne raison) doit s'unionner avec
+    # les turns v4 ; raison arrive en NULL pour les anciens tours.
+    run_v3t, turns_v3t = _run_et_records()
+    schema_turns_v3 = pa.schema([f for f in datalog.TURN_SCHEMA if f.name != "raison"])
+    lignes_v3 = []
+    for t in turns_v3t:
+        d = t.model_dump()
+        d["schema_version"] = 3
+        del d["raison"]
+        lignes_v3.append(d)
+    _pq.write_table(
+        pa.Table.from_pylist(lignes_v3, schema=schema_turns_v3),
+        tmp_path / "turns" / f"turns_{run_v3t.run_id}.parquet",
+    )
+    df_t = con.sql(
+        f"select schema_version, count(*) as n, count(raison) as raisons_non_null "
+        f"from read_parquet('{tmp_path}/turns/*.parquet', union_by_name=true) "
+        f"group by schema_version order by schema_version"
+    ).fetchall()
+    versions = {v: (n, raisons) for v, n, raisons in df_t}
+    assert versions[3][1] == 0                 # v3 : raison NULL partout
 
 
 def test_run_id_unique():

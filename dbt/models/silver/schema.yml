@@ -11,13 +11,13 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["greedy", "llm_local", "cursor", "openai"]
+                values: ["greedy", "llm_local", "cursor", "openai", "ollama"]
       - name: typologie
         tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ["degage", "ennemi_chemin", "leurre", "aleatoire"]
+                values: ["degage", "ennemi_chemin", "leurre", "aleatoire", "initiale", "defi"]
       - name: variante
         tests: [not_null]
 

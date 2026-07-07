@@ -4,3 +4,6 @@ sonnet-4,Anthropic,,frontier,false,nombre de parametres non publie (modele propr
 claude-4-sonnet,Anthropic,,frontier,false,nombre de parametres non publie (modele proprietaire)
 gpt-5-mini,OpenAI,,compact,false,nombre de parametres non publie (modele proprietaire)
 kimi-k2.7-code,Moonshot AI,1000,frontier MoE,true,open-weights : ~1000 Mds parametres totaux (~32 Mds actifs par token)
+qwen2.5:0.5b,Alibaba,0.5,nano local,true,open-weights via Ollama (challenge LLM locaux)
+llama3.2:1b,Meta,1,nano local,true,open-weights via Ollama (challenge LLM locaux)
+gemma2:2b,Google,2,petit local,true,open-weights via Ollama (challenge LLM locaux)

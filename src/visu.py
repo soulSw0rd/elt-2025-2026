@@ -6,7 +6,8 @@ tableau de bord live `rich`.
 
 Exemples :
     uv run python src/visu.py                     # greedy, carte initiale, 1er or
-    uv run python src/visu.py --cerveau cursor    # modèle Cursor, perception complète (lent)
+    uv run python src/visu.py --cerveau cursor    # Cursor CLI, perception complète (lent)
+    uv run python src/visu.py --cerveau api       # API OpenAI-compatible (.env requis)
     uv run python src/visu.py --cerveau llm_local --rayon 1 --carte leurre --objectif tout
     uv run python src/visu.py --carte aleatoire --seed 7 --pause 0.3
     uv run python src/visu.py --objectif tout     # ramasser TOUT l'or (partie plus longue)
@@ -24,15 +25,23 @@ os.environ.setdefault("LLM_API_TOKEN", "test")
 from engine import load_engine
 
 
+def api_pret() -> bool:
+    """True si LLM_API_URL / LLM_API_TOKEN sont renseignés (pas les placeholders .env.example)."""
+    url = os.environ.get("LLM_API_URL", "")
+    token = os.environ.get("LLM_API_TOKEN", "")
+    return bool(url and token and "xxxx" not in url and "xxxx" not in token)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Suivi en direct de la simulation NPC.")
-    ap.add_argument("--cerveau", choices=["greedy", "cursor", "llm_local"], default="greedy",
-                    help="greedy = baseline ; cursor = LLM perception complète ; "
-                         "llm_local = LLM à vision locale (fenêtre --rayon)")
+    ap.add_argument("--cerveau", choices=["greedy", "cursor", "llm_local", "api"], default="greedy",
+                    help="greedy = baseline ; cursor = Cursor CLI ; api = OpenAI-compatible ; "
+                         "llm_local = vision locale (fenêtre --rayon)")
     ap.add_argument("--rayon", type=int, default=1,
                     help="rayon de vision du cerveau llm_local (1 = 3x3, 2 = 5x5)")
     ap.add_argument("--model", default="claude-4-sonnet", help="modèle LLM (cursor-agent)")
-    ap.add_argument("--carte", choices=["initiale", "aleatoire", "degage", "ennemi_chemin", "leurre"],
+    ap.add_argument("--carte",
+                    choices=["initiale", "aleatoire", "degage", "ennemi_chemin", "leurre", "defi"],
                     default="initiale")
     ap.add_argument("--objectif", choices=["premier", "tout"], default="premier",
                     help="'premier' = s'arrête au 1er or ; 'tout' = ramasse tout l'or")
@@ -83,7 +92,14 @@ def main() -> None:
         world = ns["initial_map"]
 
     perception_fn = None  # défaut : perception complète
-    if args.cerveau in ("cursor", "llm_local"):
+    if args.cerveau == "api":
+        if not api_pret():
+            raise SystemExit(
+                "API non configurée : copie .env.example → .env et renseigne "
+                "LLM_API_URL / LLM_API_TOKEN."
+            )
+        cerveau = ns["decide"]
+    elif args.cerveau in ("cursor", "llm_local"):
         if not ns["cursor_pret"]():
             raise SystemExit("Cursor non authentifié : lance `cursor-agent login` d'abord.")
         if args.cerveau == "cursor":
